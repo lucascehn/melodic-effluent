@@ -1,40 +1,31 @@
-import time
-
 import numpy as np
-import pyaudio
+from sound_player import play_sound
+from scipy.signal import ShortTimeFFT
+from scipy.signal.windows import hann
 
 def main():
-    # Source - https://stackoverflow.com/a/27978895
-    # Posted by ivan_onys, modified by community. See post 'Timeline' for change history
-    # Retrieved 2026-06-14, License - CC BY-SA 4.0
-    p = pyaudio.PyAudio()
-
     volume = 0.5  # range [0.0, 1.0]
     fs = 44100  # sampling rate, Hz, must be integer
     duration = 5.0  # in seconds, may be float
     f = 440.0  # sine frequency, Hz, may be float
 
-    # generate samples, note conversion to float32 array
+    # generate 440 hz sine wave
     samples = (np.sin(2 * np.pi * np.arange(fs * duration) * f / fs)).astype(np.float32)
 
-    # per @yahweh comment explicitly convert to bytes sequence
-    output_bytes = (volume * samples).tobytes()
+    # https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.ShortTimeFFT.html#scipy.signal.ShortTimeFFT
+    hop_size = 512
+    window_size = 4 * hop_size
+    w = hann(window_size, sym=True)
+    SFT = ShortTimeFFT(w, hop=hop_size, fs=fs)
+    Sx = SFT.stft(samples)
 
-    # for paFloat32 sample values must be in range [-1.0, 1.0]
-    stream = p.open(format=pyaudio.paFloat32,
-                    channels=1,
-                    rate=fs,
-                    output=True)
+    print(SFT.invertible and "STFT is invertible" or "STFT is not invertible")
+    # from istft. dtype = float == float64, but play_sound expects float32
+    reversed_samples = SFT.istft(Sx, k1=len(samples)).astype(np.float32)
+    print(np.allclose(samples, reversed_samples) and "Perfect reconstruction" or "Reconstruction differs")
 
-    # play. May repeat with different volume values (if done interactively)
-    start_time = time.time()
-    stream.write(output_bytes)
-    print("Played sound for {:.2f} seconds".format(time.time() - start_time))
-
-    stream.stop_stream()
-    stream.close()
-
-    p.terminate()
+    play_sound(reversed_samples, fs=fs, volume=volume)
+    play_sound(samples, fs=fs, volume=volume)
 
 
 if __name__ == "__main__":
